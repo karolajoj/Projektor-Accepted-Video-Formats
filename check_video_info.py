@@ -22,10 +22,10 @@ def check_encoder_support(encoder):
 def get_video_info(file_path):
     """Pobiera informacje o pliku wideo."""
     if not os.path.isfile(FFPROBE_PATH):
-        print(f"❌ Błąd: ffprobe.exe nie znaleziono w: {FFPROBE_PATH}")
+        print(f"❌  Błąd: ffprobe.exe nie znaleziono w: {FFPROBE_PATH}")
         return None
     if not os.path.isfile(file_path):
-        print(f"❌ Błąd: Plik nie istnieje: {file_path}")
+        print(f"❌  Błąd: Plik nie istnieje: {file_path}")
         return None
 
     try:
@@ -36,13 +36,14 @@ def get_video_info(file_path):
                                      "stream=codec_name", "-of", "csv=p=0", file_path], 
                                     capture_output=True, text=True, check=True, shell=True).stdout.strip()
         size_info = float(subprocess.run([FFPROBE_PATH, "-v", "error", "-show_entries", "format=size", 
-                                          "-of", "default=noprint_wrappers=1:nokey=1", file_path], 
-                                         capture_output=True, text=True, check=True, shell=True).stdout.strip())
+                                            "-of", "default=noprint_wrappers=1:nokey=1", file_path], 
+                                        capture_output=True, text=True, check=True, shell=True).stdout.strip())
+        # size_info = abs(size_info)
         duration_info = subprocess.run([FFPROBE_PATH, "-v", "error", "-show_entries", "format=duration", 
                                         "-sexagesimal", "-of", "default=noprint_wrappers=1:nokey=1", file_path], 
                                        capture_output=True, text=True, check=True, shell=True).stdout.strip().split('.')[0]
     except subprocess.CalledProcessError as e:
-        print(f"❌ Błąd analizy pliku {file_path}: {e}")
+        print(f"❌  Błąd analizy pliku {file_path}: {e}")
         return None
 
     return {
@@ -91,22 +92,22 @@ def check_projector_support(info):
 def convert_file(file_path):
     """Konwertuje plik do formatu obsługiwanego przez projektor (HEVC i AAC)."""
     if not os.path.isfile(FFMPEG_PATH):
-        print(f"❌ Błąd: ffmpeg.exe nie znaleziono w: {FFMPEG_PATH}")
+        print(f"❌  Błąd: ffmpeg.exe nie znaleziono w: {FFMPEG_PATH}")
         return False
 
     # Sprawdzenie dostępności enkoderów
     use_nvenc = check_encoder_support("hevc_nvenc")
     if not use_nvenc and not check_encoder_support("libx265"):
-        print("❌ Błąd: FFmpeg nie obsługuje ani hevc_nvenc, ani libx265. Zaktualizuj FFmpeg.")
+        print("❌  Błąd: FFmpeg nie obsługuje ani hevc_nvenc, ani libx265. Zaktualizuj FFmpeg.")
         return False
     if not check_encoder_support("aac"):
-        print("❌ Błąd: FFmpeg nie obsługuje enkodera aac.")
+        print("❌  Błąd: FFmpeg nie obsługuje enkodera aac.")
         return False
 
     output_file = os.path.splitext(file_path)[0] + "_converted.mp4"
     total_duration = get_duration_seconds(file_path)
     if total_duration == 0:
-        print("❌ Błąd: Nie udało się pobrać czasu trwania pliku.")
+        print("❌  Błąd: Nie udało się pobrać czasu trwania pliku.")
         return False
 
     # Pobranie informacji o pliku
@@ -145,7 +146,7 @@ def convert_file(file_path):
         process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', bufsize=1)
         last_progress = -1
         
-        print(f"Konwertowanie pliku: {os.path.basename(file_path)}")
+        print(f"🔄  Konwertowanie pliku: {os.path.basename(file_path)}")
         for line in process.stdout:
             match = re.search(r"time=(\d{2}:\d{2}:\d{2}\.\d{2})", line)
             if match:
@@ -159,21 +160,38 @@ def convert_file(file_path):
                 remaining_time = (total_duration - current_time) / speed if speed > 0 else 0
                 remaining_time_str = f"~{int(remaining_time // 60)} min" if remaining_time > 60 else f"~{int(remaining_time)} s"
                 
-                if progress > last_progress:
+                if progress >= last_progress:  # Zmieniono warunek, aby uwzględnić 100%
                     current_time_str = str(timedelta(seconds=int(current_time))).split('.')[0]
-                    total_duration_str = str(timedelta(seconds=int(total_duration))).split('.')[0]
-                    print(f"\rPostęp: {progress}% | Czas: {current_time_str} / {total_duration_str} | Pozostało: {remaining_time_str}", end="")
+                    print(f"\r🔄  Postęp: {progress:3d}% | Pozostało: {remaining_time_str:<10}", end="")
                     last_progress = progress
         
         process.wait()
+        print(f"\r🔄  Postęp: 100%                                                                                ")
         if process.returncode == 0:
-            print(f"\n✔️ Plik został przekonwertowany: {output_file}")
+            print(f"\n✅  Plik został przekonwertowany: {output_file}")
             return True
         else:
-            print(f"\n❌ Błąd konwersji: Sprawdź FFmpeg lub plik wejściowy.")
+            print(f"\n❌  Błąd konwersji: Sprawdź FFmpeg lub plik wejściowy.")
+            if os.path.exists(output_file):
+                os.remove(output_file)
             return False
+
+    except KeyboardInterrupt:
+        print(f"\n⚠️  Przerwano konwersję pliku: {os.path.basename(file_path)}")
+        process.terminate()
+        try:
+            process.wait(timeout=1)  # Czekaj na zakończenie procesu
+        except subprocess.TimeoutExpired:
+            process.kill()  # Wymuś zabicie, jeśli nie zakończy się w czasie
+        if os.path.exists(output_file):
+            os.remove(output_file)
+            print(f"🗑️  Usunięto niedokończony plik: {output_file}")
+        raise  # Przekaż wyjątek do nadrzędnego bloku
+
     except Exception as e:
-        print(f"\n❌ Błąd konwersji: {str(e)}")
+        print(f"\n❌  Błąd konwersji: {str(e)}")
+        if os.path.exists(output_file):
+            os.remove(output_file)
         return False
 
 def process_file(file_path):
@@ -182,23 +200,21 @@ def process_file(file_path):
     if not info:
         return None, None
 
-    print(f"\n========== Plik: {info['file_name']} ==========")
-    print(pd.DataFrame([info]).to_string(index=False))
-    print()
+    print(f"\n\n📄  Analiza pliku: {info['file_name']}")
+    print(pd.DataFrame([info]).to_string(index=False, justify='left'))
 
     reasons, _, _ = check_projector_support(info)
     if reasons:
-        print("⚠️ Plik nieobsługiwany przez projektor! Powody:")
+        print("⚠️  Plik nieobsługiwany przez projektor:")
         for reason in reasons:
-            print(f" - {reason}")
+            print(f"  - {reason}")
     else:
-        print("✔️ Plik obsługiwany przez projektor")
-    print("=======================================")
+        print("✅  Plik obsługiwany przez projektor")
     
     return info, reasons
 
 def get_files_to_process(paths):
-    """Zwraca listę plików do przetworzenia na podstawie podanych ścieżek (pliki lub foldery)."""
+    """Zwraca listę plików do przetworzenia na podstawie podanych ścieżek."""
     files = []
     for path in paths:
         if os.path.isfile(path) and os.path.splitext(path)[1].lower() in VIDEO_EXTENSIONS:
@@ -211,35 +227,40 @@ def get_files_to_process(paths):
     return files
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        files_to_process = get_files_to_process(sys.argv[1:])
-    else:
-        while True:
-            user_input = input("📂 Podaj ścieżki do plików lub folderów (użyj cudzysłowów dla nazw ze spacjami): ")
-            file_paths = shlex.split(user_input)
-            if not file_paths:
-                print("❌ Nie podano ścieżek.")
-                continue
-            files_to_process = get_files_to_process(file_paths)
-            break
+    try:
+        if len(sys.argv) > 1:
+            files_to_process = get_files_to_process(sys.argv[1:])
+        else:
+            while True:
+                user_input = input("📂  Podaj ścieżki do plików lub folderów (użyj cudzysłowów dla nazw ze spacjami): ")
+                file_paths = shlex.split(user_input)
+                if not file_paths:
+                    print("❌  Nie podano ścieżek.")
+                    continue
+                files_to_process = get_files_to_process(file_paths)
+                break
 
-    # Lista nieobsługiwanych plików
-    unsupported_files = []
-    
-    # Przetwarzanie wszystkich plików
-    for file in files_to_process:
-        info, reasons = process_file(file)
-        if reasons:
-            unsupported_files.append(file)
-    
-    # Pytanie o konwersję wszystkich nieobsługiwanych plików
-    if unsupported_files:
-        print(f"\nZnaleziono {len(unsupported_files)} nieobsługiwanych plików:")
-        for file in unsupported_files:
-            print(f" - {os.path.basename(file)}")
-        response = input("\nCzy chcesz przekonwertować wszystkie nieobsługiwane pliki do formatu obsługiwanego? (T/N): ")
-        if response.upper() == "T":
+        # Lista nieobsługiwanych plików
+        unsupported_files = []
+        
+        # Przetwarzanie wszystkich plików
+        for file in files_to_process:
+            info, reasons = process_file(file)
+            if reasons:
+                unsupported_files.append(file)
+        
+        # Pytanie o konwersję wszystkich nieobsługiwanych plików
+        if unsupported_files:
+            print(f"\n📋  Znaleziono {len(unsupported_files)} nieobsługiwanych plików:")
             for file in unsupported_files:
-                convert_file(file)
-    else:
-        print("\nWszystkie pliki są obsługiwane przez projektor.")
+                print(f"  - {os.path.basename(file)}")
+            response = input("\nCzy chcesz przekonwertować wszystkie nieobsługiwane pliki do formatu obsługiwanego? (T/N): ")
+            if response.upper() == "T":
+                for file in unsupported_files:
+                    print()
+                    convert_file(file)
+        else:
+            print("\n✅  Wszystkie pliki są obsługiwane przez projektor.")
+
+    except KeyboardInterrupt:
+        print("\n⚠️  Program przerwany przez użytkownika.")
