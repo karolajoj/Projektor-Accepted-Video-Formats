@@ -1,15 +1,19 @@
 import os
 import subprocess
+import time
 import pandas as pd
 import sys
 import shlex
 import re
 from datetime import timedelta
+import itertools
 
 FFPROBE_PATH = "F:\\Downloads\\Free_MP4_to_MP3_Converter_64bit_PORTABLE\\tools\\FFmpeg64\\ffprobe.exe"
 FFMPEG_PATH = "F:\\Downloads\\Free_MP4_to_MP3_Converter_64bit_PORTABLE\\tools\\FFmpeg64\\ffmpeg.exe"
 
 VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv']
+# SPINNER = itertools.cycle(['|', '/', '-', '\\'])
+SPINNER = itertools.cycle(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'])
 
 def check_encoder_support(encoder):
     """Sprawdza, czy dany enkoder jest obsługiwany przez FFmpeg."""
@@ -38,7 +42,6 @@ def get_video_info(file_path):
         size_info = float(subprocess.run([FFPROBE_PATH, "-v", "error", "-show_entries", "format=size", 
                                             "-of", "default=noprint_wrappers=1:nokey=1", file_path], 
                                         capture_output=True, text=True, check=True, shell=True).stdout.strip())
-        # size_info = abs(size_info)
         duration_info = subprocess.run([FFPROBE_PATH, "-v", "error", "-show_entries", "format=duration", 
                                         "-sexagesimal", "-of", "default=noprint_wrappers=1:nokey=1", file_path], 
                                        capture_output=True, text=True, check=True, shell=True).stdout.strip().split('.')[0]
@@ -145,8 +148,7 @@ def convert_file(file_path):
     try:
         process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', bufsize=1)
         last_progress = -1
-        
-        print(f"🔄  Konwertowanie pliku: {os.path.basename(file_path)}")
+
         for line in process.stdout:
             match = re.search(r"time=(\d{2}:\d{2}:\d{2}\.\d{2})", line)
             if match:
@@ -158,17 +160,18 @@ def convert_file(file_path):
                 speed_match = re.search(r"speed=([\d.]+)x", line)
                 speed = float(speed_match.group(1)) if speed_match else 1.0
                 remaining_time = (total_duration - current_time) / speed if speed > 0 else 0
-                remaining_time_str = f"~{int(remaining_time // 60)} min" if remaining_time > 60 else f"~{int(remaining_time)} s"
+                remaining_time_str = f"{int(remaining_time // 60)} min" if remaining_time > 60 else f"{int(remaining_time)} s"
                 
-                if progress >= last_progress:  # Zmieniono warunek, aby uwzględnić 100%
+                if progress >= last_progress:
                     current_time_str = str(timedelta(seconds=int(current_time))).split('.')[0]
-                    print(f"\r🔄  Postęp: {progress:3d}% | Pozostało: {remaining_time_str:<10}", end="")
+                    spinner_char = next(SPINNER)
+                    print(f"\r{spinner_char} Konwertowanie pliku: {os.path.basename(file_path)} | Postęp: {progress:3d}% | Pozostało: {remaining_time_str:<10}", end="")
+                    sys.stdout.flush()
                     last_progress = progress
         
         process.wait()
-        print(f"\r🔄  Postęp: 100%                                                                                ")
         if process.returncode == 0:
-            print(f"\n✅  Plik został przekonwertowany: {output_file}")
+            print(f"\r✅  Plik został przekonwertowany: {output_file}" + " " * 50, end="")
             return True
         else:
             print(f"\n❌  Błąd konwersji: Sprawdź FFmpeg lub plik wejściowy.")
@@ -177,7 +180,7 @@ def convert_file(file_path):
             return False
 
     except KeyboardInterrupt:
-        print(f"\n⚠️  Przerwano konwersję pliku: {os.path.basename(file_path)}")
+        print(f"\n\n⚠️  Przerwano konwersję pliku: {os.path.basename(file_path)}")
         process.terminate()
         try:
             process.wait(timeout=1)  # Czekaj na zakończenie procesu
@@ -227,40 +230,49 @@ def get_files_to_process(paths):
     return files
 
 if __name__ == "__main__":
-    try:
-        if len(sys.argv) > 1:
-            files_to_process = get_files_to_process(sys.argv[1:])
-        else:
-            while True:
-                user_input = input("📂  Podaj ścieżki do plików lub folderów (użyj cudzysłowów dla nazw ze spacjami): ")
-                file_paths = shlex.split(user_input)
-                if not file_paths:
-                    print("❌  Nie podano ścieżek.")
-                    continue
-                files_to_process = get_files_to_process(file_paths)
-                break
+    while True:
+        try:
+            if len(sys.argv) > 1:
+                files_to_process = get_files_to_process(sys.argv[1:])
+            else:
+                while True:
+                    user_input = input("📂  Podaj ścieżki do plików lub folderów (użyj cudzysłowów dla nazw ze spacjami): ")
+                    file_paths = shlex.split(user_input)
+                    if not file_paths:
+                        print("❌  Nie podano ścieżek.\n")
+                        continue
+                    files_to_process = get_files_to_process(file_paths)
+                    break
 
-        # Lista nieobsługiwanych plików
-        unsupported_files = []
-        
-        # Przetwarzanie wszystkich plików
-        for file in files_to_process:
-            info, reasons = process_file(file)
-            if reasons:
-                unsupported_files.append(file)
-        
-        # Pytanie o konwersję wszystkich nieobsługiwanych plików
-        if unsupported_files:
-            print(f"\n📋  Znaleziono {len(unsupported_files)} nieobsługiwanych plików:")
-            for file in unsupported_files:
-                print(f"  - {os.path.basename(file)}")
-            response = input("\nCzy chcesz przekonwertować wszystkie nieobsługiwane pliki do formatu obsługiwanego? (T/N): ")
-            if response.upper() == "T":
+            # Lista nieobsługiwanych plików
+            unsupported_files = []
+            
+            # Przetwarzanie wszystkich plików
+            for file in files_to_process:
+                info, reasons = process_file(file)
+                if reasons:
+                    unsupported_files.append(file)
+            
+            # Pytanie o konwersję wszystkich nieobsługiwanych plików
+            if unsupported_files:
+                print(f"\n📋  Znaleziono {len(unsupported_files)} nieobsługiwanych plików:")
                 for file in unsupported_files:
-                    print()
-                    convert_file(file)
-        else:
-            print("\n✅  Wszystkie pliki są obsługiwane przez projektor.")
+                    print(f"  - {os.path.basename(file)}")
+                while True:
+                    response = input("\nCzy chcesz przekonwertować wszystkie nieobsługiwane pliki do formatu obsługiwanego? (T/N): ")
+                    if response.upper() == "T":
+                        for file in unsupported_files:
+                            print()
+                            convert_file(file)
+                        break
+                    elif response.upper() == "N":
+                        print()
+                        break
+                    else:
+                        print("❌  Niepoprawna odpowiedź. Wybierz T lub N.")
 
-    except KeyboardInterrupt:
-        print("\n⚠️  Program przerwany przez użytkownika.")
+        except KeyboardInterrupt:
+            print("\n⚠️  Program przerwany przez użytkownika.")
+            input("\nNaciśnij Enter, aby zamknąć program...")
+            break
+input()
