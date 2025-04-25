@@ -1,6 +1,5 @@
 import os
 import subprocess
-import time
 import pandas as pd
 import sys
 import shlex
@@ -75,12 +74,10 @@ def check_projector_support(info):
     video_needs_conversion = False
     audio_needs_conversion = False
 
-    # Sprawdzenie kodeka audio
     if info["audio_codec"] in ["ac3", "eac3"]:
         reasons.append("Nieobsługiwany kodek audio (ac3/eac3)")
         audio_needs_conversion = True
 
-    # Sprawdzenie kodeka wideo i rozdzielczości
     if info["video_codec"] != "hevc":
         reasons.append("Nieobsługiwany kodek wideo (musi być HEVC)")
         video_needs_conversion = True
@@ -98,7 +95,6 @@ def convert_file(file_path):
         print(f"❌  Błąd: ffmpeg.exe nie znaleziono w: {FFMPEG_PATH}")
         return False
 
-    # Sprawdzenie dostępności enkoderów
     use_nvenc = check_encoder_support("hevc_nvenc")
     if not use_nvenc and not check_encoder_support("libx265"):
         print("❌  Błąd: FFmpeg nie obsługuje ani hevc_nvenc, ani libx265. Zaktualizuj FFmpeg.")
@@ -113,15 +109,12 @@ def convert_file(file_path):
         print("❌  Błąd: Nie udało się pobrać czasu trwania pliku.")
         return False
 
-    # Pobranie informacji o pliku
     info = get_video_info(file_path)
     if not info:
         return False
 
-    # Określenie, które strumienie wymagają konwersji
     reasons, video_needs_conversion, audio_needs_conversion = check_projector_support(info)
 
-    # Ustawienie parametrów wideo
     if video_needs_conversion:
         if use_nvenc:
             video_encoder = "hevc_nvenc"
@@ -129,7 +122,6 @@ def convert_file(file_path):
         else:
             video_encoder = "libx265"
             video_params = ["-preset", "ultrafast"]
-        # Skalowanie, jeśli rozdzielczość przekracza 1920x1080
         if info["resolution"]:
             width, height = map(int, info["resolution"].split("x"))
             if width > 1920 or height > 1080:
@@ -138,11 +130,9 @@ def convert_file(file_path):
         video_encoder = "copy"
         video_params = []
 
-    # Ustawienie parametrów audio
     audio_encoder = "aac" if audio_needs_conversion else "copy"
     audio_params = []
 
-    # Budowanie polecenia FFmpeg
     cmd = [FFMPEG_PATH, "-i", file_path, "-c:v", video_encoder, "-c:a", audio_encoder, "-hide_banner", "-loglevel", "warning", "-stats", "-y"] + video_params + audio_params + [output_file]
     
     try:
@@ -183,13 +173,13 @@ def convert_file(file_path):
         print(f"\n\n⚠️  Przerwano konwersję pliku: {os.path.basename(file_path)}")
         process.terminate()
         try:
-            process.wait(timeout=1)  # Czekaj na zakończenie procesu
+            process.wait(timeout=1)
         except subprocess.TimeoutExpired:
-            process.kill()  # Wymuś zabicie, jeśli nie zakończy się w czasie
+            process.kill()
         if os.path.exists(output_file):
             os.remove(output_file)
             print(f"🗑️  Usunięto niedokończony plik: {output_file}")
-        raise  # Przekaż wyjątek do nadrzędnego bloku
+        raise
 
     except Exception as e:
         print(f"\n❌  Błąd konwersji: {str(e)}")
@@ -217,16 +207,16 @@ def process_file(file_path):
     return info, reasons
 
 def get_files_to_process(paths):
-    """Zwraca listę plików do przetworzenia na podstawie podanych ścieżek."""
+    """Zwraca listę plików do przetworzenia na podstawie podanych ścieżek, przeszukując rekurencyjnie podfoldery."""
     files = []
     for path in paths:
         if os.path.isfile(path) and os.path.splitext(path)[1].lower() in VIDEO_EXTENSIONS:
             files.append(path)
         elif os.path.isdir(path):
-            for file in os.listdir(path):
-                file_path = os.path.join(path, file)
-                if os.path.isfile(file_path) and os.path.splitext(file)[1].lower() in VIDEO_EXTENSIONS:
-                    files.append(file_path)
+            for root, _, files_in_dir in os.walk(path):
+                for file in files_in_dir:
+                    if os.path.splitext(file)[1].lower() in VIDEO_EXTENSIONS:
+                        files.append(os.path.join(root, file))
     return files
 
 if __name__ == "__main__":
@@ -244,16 +234,13 @@ if __name__ == "__main__":
                     files_to_process = get_files_to_process(file_paths)
                     break
 
-            # Lista nieobsługiwanych plików
             unsupported_files = []
             
-            # Przetwarzanie wszystkich plików
             for file in files_to_process:
                 info, reasons = process_file(file)
                 if reasons:
                     unsupported_files.append(file)
             
-            # Pytanie o konwersję wszystkich nieobsługiwanych plików
             if unsupported_files:
                 print(f"\n📋  Znaleziono {len(unsupported_files)} nieobsługiwanych plików:")
                 for file in unsupported_files:
