@@ -89,7 +89,7 @@ def check_projector_support(info):
 
     return reasons, video_needs_conversion, audio_needs_conversion
 
-def convert_file(file_path):
+def convert_file(file_path, current_file=1, total_files=1):
     """Konwertuje plik do formatu obsługiwanego przez projektor (HEVC i AAC)."""
     if not os.path.isfile(FFMPEG_PATH):
         print(f"❌  Błąd: ffmpeg.exe nie znaleziono w: {FFMPEG_PATH}")
@@ -155,13 +155,13 @@ def convert_file(file_path):
                 if progress >= last_progress:
                     current_time_str = str(timedelta(seconds=int(current_time))).split('.')[0]
                     spinner_char = next(SPINNER)
-                    print(f"\r{spinner_char} Konwertowanie pliku: {os.path.basename(file_path)} | Postęp: {progress:3d}% | Pozostało: {remaining_time_str:<10}", end="")
+                    print(f"\r{spinner_char} {current_file}/{total_files} Konwertowanie pliku: {os.path.basename(file_path)} | Postęp: {progress:3d}% | Pozostało: {remaining_time_str:<10}", end="")
                     sys.stdout.flush()
                     last_progress = progress
         
         process.wait()
         if process.returncode == 0:
-            print(f"\r✅  Plik został przekonwertowany: {output_file}" + " " * 50, end="")
+            print(f"\r✅  {current_file}/{total_files} Plik został przekonwertowany: {output_file}" + " " * 50, end="")
             return True
         else:
             print(f"\n❌  Błąd konwersji: Sprawdź FFmpeg lub plik wejściowy.")
@@ -248,9 +248,10 @@ if __name__ == "__main__":
                 while True:
                     response = input("\nCzy chcesz przekonwertować wszystkie nieobsługiwane pliki do formatu obsługiwanego? (T/N): ")
                     if response.upper() == "T":
-                        for file in unsupported_files:
+                        total_files = len(unsupported_files)
+                        for i, file in enumerate(unsupported_files, 1):
                             print()
-                            convert_file(file)
+                            convert_file(file, current_file=i, total_files=total_files)
                         break
                     elif response.upper() == "N":
                         print()
