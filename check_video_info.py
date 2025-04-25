@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 from datetime import timedelta
 import itertools
+from send2trash import send2trash
 
 FFPROBE_PATH = "F:\\Downloads\\Free_MP4_to_MP3_Converter_64bit_PORTABLE\\tools\\FFmpeg64\\ffprobe.exe"
 FFMPEG_PATH = "F:\\Downloads\\Free_MP4_to_MP3_Converter_64bit_PORTABLE\\tools\\FFmpeg64\\ffmpeg.exe"
@@ -155,13 +156,18 @@ def convert_file(file_path, current_file=1, total_files=1):
                 if progress >= last_progress:
                     current_time_str = str(timedelta(seconds=int(current_time))).split('.')[0]
                     spinner_char = next(SPINNER)
-                    print(f"\r{spinner_char} {current_file}/{total_files} Konwertowanie pliku: {os.path.basename(file_path)} | Postęp: {progress:3d}% | Pozostało: {remaining_time_str:<10}", end="")
+                    print(f"\r {spinner_char} {current_file}/{total_files} Konwertowanie pliku: {os.path.basename(file_path)} | Postęp: {progress:3d}% | Pozostało: {remaining_time_str:<10}", end="")
                     sys.stdout.flush()
                     last_progress = progress
-        
+
         process.wait()
         if process.returncode == 0:
-            print(f"\r✅  {current_file}/{total_files} Plik został przekonwertowany: {output_file}" + " " * 50, end="")
+            print(f"\r✅ {current_file}/{total_files} Plik został przekonwertowany: {output_file}" + " " * 50, end="")
+            if os.path.isfile(file_path):
+                try:
+                    send2trash(file_path)
+                except Exception as e:
+                    print(f"\n⚠️  Nie udało się przenieść pliku do kosza: {str(e)}")
             return True
         else:
             print(f"\n❌  Błąd konwersji: Sprawdź FFmpeg lub plik wejściowy.")
