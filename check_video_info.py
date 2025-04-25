@@ -2,7 +2,7 @@ import os
 import subprocess
 import pandas as pd
 import sys
-import shlex
+from pathlib import Path
 import re
 from datetime import timedelta
 import itertools
@@ -113,7 +113,7 @@ def convert_file(file_path):
     if not info:
         return False
 
-    reasons, video_needs_conversion, audio_needs_conversion = check_projector_support(info)
+    _, video_needs_conversion, audio_needs_conversion = check_projector_support(info)
 
     if video_needs_conversion:
         if use_nvenc:
@@ -227,7 +227,7 @@ if __name__ == "__main__":
             else:
                 while True:
                     user_input = input("📂  Podaj ścieżki do plików lub folderów (użyj cudzysłowów dla nazw ze spacjami): ")
-                    file_paths = shlex.split(user_input)
+                    file_paths = [str(Path(p)) for p in user_input.split()]
                     if not file_paths:
                         print("❌  Nie podano ścieżek.\n")
                         continue
@@ -262,4 +262,3 @@ if __name__ == "__main__":
             print("\n⚠️  Program przerwany przez użytkownika.")
             input("\nNaciśnij Enter, aby zamknąć program...")
             break
-input()
