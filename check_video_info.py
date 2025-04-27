@@ -25,7 +25,7 @@ def check_encoder_support(encoder):
         return False
 
 def get_video_info(file_path):
-    """Pobiera informacje o pliku wideo."""
+    """Pobiera informacje o pliku wideo, w tym wszystkie ścieżki audio i napisy."""
     if not os.path.isfile(FFPROBE_PATH):
         print(f"❌  Błąd: ffprobe.exe nie znaleziono w: {FFPROBE_PATH}")
         return None
@@ -37,12 +37,19 @@ def get_video_info(file_path):
         video_info = subprocess.run([FFPROBE_PATH, "-v", "error", "-select_streams", "v:0", "-show_entries", 
                                      "stream=codec_name,width,height", "-of", "csv=p=0", file_path], 
                                     capture_output=True, text=True, check=True, shell=True).stdout.strip().split(',')
-        audio_info = subprocess.run([FFPROBE_PATH, "-v", "error", "-select_streams", "a:0", "-show_entries", 
+        # Pobierz kodeki wszystkich ścieżek audio
+        audio_info = subprocess.run([FFPROBE_PATH, "-v", "error", "-select_streams", "a", "-show_entries", 
                                      "stream=codec_name", "-of", "csv=p=0", file_path], 
-                                    capture_output=True, text=True, check=True, shell=True).stdout.strip()
-        size_info = float(subprocess.run([FFPROBE_PATH, "-v", "error", "-show_entries", "format=size", 
+                                    capture_output=True, text=True, check=True, shell=True).stdout.strip().split('\n')
+        audio_codecs = [codec.strip() for codec in audio_info if codec.strip()]  # Usuń puste linie
+        # Pobierz kodeki wszystkich napisów
+        subtitle_info = subprocess.run([FFPROBE_PATH, "-v", "error", "-select_streams", "s", "-show_entries", 
+                                       "stream=codec_name", "-of", "csv=p=0", file_path], 
+                                      capture_output=True, text=True, check=True, shell=True).stdout.strip().split('\n')
+        subtitle_codecs = [codec.strip() for codec in subtitle_info if codec.strip()]  # Usuń puste linie
+        size_info = abs(float(subprocess.run([FFPROBE_PATH, "-v", "error", "-show_entries", "format=size", 
                                             "-of", "default=noprint_wrappers=1:nokey=1", file_path], 
-                                        capture_output=True, text=True, check=True, shell=True).stdout.strip())
+                                        capture_output=True, text=True, check=True, shell=True).stdout.strip()))
         duration_info = subprocess.run([FFPROBE_PATH, "-v", "error", "-show_entries", "format=duration", 
                                         "-sexagesimal", "-of", "default=noprint_wrappers=1:nokey=1", file_path], 
                                        capture_output=True, text=True, check=True, shell=True).stdout.strip().split('.')[0]
@@ -56,7 +63,8 @@ def get_video_info(file_path):
         "size": f"{size_info / (1024 * 1024 * 1024):.2f} GB",
         "duration": duration_info,
         "video_codec": video_info[0] if video_info else None,
-        "audio_codec": audio_info if audio_info else None,
+        "audio_codecs": audio_codecs if audio_codecs else [None],
+        "subtitle_codecs": subtitle_codecs if subtitle_codecs else [],
         "resolution": f"{int(video_info[1])}x{int(video_info[2])}" if len(video_info) > 2 else None
     }
 
@@ -74,11 +82,12 @@ def check_projector_support(info):
     """Sprawdza zgodność pliku z projektorem i zwraca listę powodów nieobsługiwania."""
     reasons = []
     video_needs_conversion = False
-    audio_needs_conversion = False
+    audio_needs_conversion = [False] * len(info["audio_codecs"])
 
-    if info["audio_codec"] in ["ac3", "eac3"]:
-        reasons.append("Nieobsługiwany kodek audio (ac3/eac3)")
-        audio_needs_conversion = True
+    for i, codec in enumerate(info["audio_codecs"]):
+        if codec in ["ac3", "eac3"]:
+            reasons.append(f"Nieobsługiwany kodek audio w ścieżce {i} ({codec})")
+            audio_needs_conversion[i] = True
 
     if info["video_codec"] != "hevc":
         reasons.append("Nieobsługiwany kodek wideo (musi być HEVC)")
@@ -92,7 +101,7 @@ def check_projector_support(info):
     return reasons, video_needs_conversion, audio_needs_conversion
 
 def convert_file(file_path, current_file=1, total_files=1):
-    """Konwertuje plik do formatu obsługiwanego przez projektor (HEVC i AAC)."""
+    """Konwertuje plik do formatu obsługiwanego przez projektor (HEVC i AAC), zachowując wszystkie ścieżki audio i napisy."""
     if not os.path.isfile(FFMPEG_PATH):
         print(f"❌  Błąd: ffmpeg.exe nie znaleziono w: {FFMPEG_PATH}")
         return False
@@ -120,7 +129,7 @@ def convert_file(file_path, current_file=1, total_files=1):
     if video_needs_conversion:
         if use_nvenc:
             video_encoder = "hevc_nvenc"
-            video_params = ["-preset", "p7", "-rc", "vbr", "-b:v", "5M"]
+            video_params = ["-preset", "p5", "-rc", "vbr", "-cq", "24"]
         else:
             video_encoder = "libx265"
             video_params = ["-preset", "ultrafast"]
@@ -132,10 +141,17 @@ def convert_file(file_path, current_file=1, total_files=1):
         video_encoder = "copy"
         video_params = []
 
-    audio_encoder = "aac" if audio_needs_conversion else "copy"
     audio_params = []
+    for i, needs_conversion in enumerate(audio_needs_conversion):
+        audio_params.extend([f"-c:a:{i}", "aac" if needs_conversion else "copy"])
 
-    cmd = [FFMPEG_PATH, "-i", file_path, "-c:v", video_encoder, "-c:a", audio_encoder, "-hide_banner", "-loglevel", "warning", "-stats", "-y"] + video_params + audio_params + [output_file]
+    subtitle_params = ["-c:s", "mov_text"] if info["subtitle_codecs"] else []
+
+    cmd = [FFMPEG_PATH, "-i", file_path, "-map", "0:v", "-map", "0:a"]
+    if info["subtitle_codecs"]:
+        cmd.extend(["-map", "0:s"])  # Mapuj napisy, jeśli istnieją
+    cmd.extend(["-c:v", video_encoder, "-hide_banner", "-loglevel", "warning", "-stats", "-y"] + 
+               video_params + audio_params + subtitle_params + [output_file])
     
     try:
         process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', bufsize=1)
@@ -201,7 +217,17 @@ def process_file(file_path):
         return None, None
 
     print(f"\n\n📄  Analiza pliku: {info['file_name']}")
-    print(pd.DataFrame([info]).to_string(index=False, justify='left'))
+    info_display = info.copy()
+    info_display.pop("audio_codecs")
+    info_display.pop("subtitle_codecs")
+    print(pd.DataFrame([info_display]).to_string(index=False, justify='left'))
+    print("Ścieżki audio:")
+    for i, codec in enumerate(info["audio_codecs"]):
+        print(f"  - Ścieżka {i}: {codec if codec else 'nieznany'}")
+    if info["subtitle_codecs"]:
+        print("Ścieżki napisów:")
+        for i, codec in enumerate(info["subtitle_codecs"]):
+            print(f"  - Ścieżka {i}: {codec if codec else 'nieznany'}")
 
     reasons, _, _ = check_projector_support(info)
     if reasons:
