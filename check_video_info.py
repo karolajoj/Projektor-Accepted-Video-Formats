@@ -37,19 +37,15 @@ def get_video_info(file_path):
         video_info = subprocess.run([FFPROBE_PATH, "-v", "error", "-select_streams", "v:0", "-show_entries", 
                                      "stream=codec_name,width,height", "-of", "csv=p=0", file_path], 
                                     capture_output=True, text=True, check=True, shell=True).stdout.strip().split(',')
-        # Pobierz kodeki wszystkich ścieżek audio
         audio_info = subprocess.run([FFPROBE_PATH, "-v", "error", "-select_streams", "a", "-show_entries", 
                                      "stream=codec_name", "-of", "csv=p=0", file_path], 
                                     capture_output=True, text=True, check=True, shell=True).stdout.strip().split('\n')
-        audio_codecs = [codec.strip() for codec in audio_info if codec.strip()]  # Usuń puste linie
-        # Pobierz kodeki wszystkich napisów
+        audio_codecs = [codec.strip() for codec in audio_info if codec.strip()]
         subtitle_info = subprocess.run([FFPROBE_PATH, "-v", "error", "-select_streams", "s", "-show_entries", 
                                        "stream=codec_name", "-of", "csv=p=0", file_path], 
                                       capture_output=True, text=True, check=True, shell=True).stdout.strip().split('\n')
-        subtitle_codecs = [codec.strip() for codec in subtitle_info if codec.strip()]  # Usuń puste linie
-        size_info = abs(float(subprocess.run([FFPROBE_PATH, "-v", "error", "-show_entries", "format=size", 
-                                            "-of", "default=noprint_wrappers=1:nokey=1", file_path], 
-                                        capture_output=True, text=True, check=True, shell=True).stdout.strip()))
+        subtitle_codecs = [codec.strip() for codec in subtitle_info if codec.strip()]
+        size_info = os.path.getsize(file_path)
         duration_info = subprocess.run([FFPROBE_PATH, "-v", "error", "-show_entries", "format=duration", 
                                         "-sexagesimal", "-of", "default=noprint_wrappers=1:nokey=1", file_path], 
                                        capture_output=True, text=True, check=True, shell=True).stdout.strip().split('.')[0]
@@ -180,6 +176,11 @@ def convert_file(file_path, current_file=1, total_files=1):
         process.wait()
         if process.returncode == 0:
             print(f"\r✅ {current_file}/{total_files} Plik został przekonwertowany: {output_file}" + " " * 50, end="")
+            output_size = os.path.getsize(output_file) / (1024 * 1024 * 1024)
+            input_size = os.path.getsize(file_path) / (1024 * 1024 * 1024)
+            if output_size > input_size:
+                print(f"\n⚠️  Ostrzeżenie: Rozmiar pliku wyjściowego ({output_size:.2f} GB) jest większy niż oryginalny ({input_size:.2f} GB).")
+            
             if os.path.isfile(file_path):
                 try:
                     send2trash(file_path)
