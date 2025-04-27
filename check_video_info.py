@@ -3,6 +3,7 @@ import subprocess
 import pandas as pd
 import sys
 from pathlib import Path
+import shlex
 import re
 from datetime import timedelta
 import itertools
@@ -233,11 +234,20 @@ if __name__ == "__main__":
             else:
                 while True:
                     user_input = input("📂  Podaj ścieżki do plików lub folderów (użyj cudzysłowów dla nazw ze spacjami): ")
+
                     file_paths = [str(Path(p)) for p in user_input.split()]
-                    if not file_paths:
-                        print("❌  Nie podano ścieżek.\n")
+                    file_paths2 = shlex.split(user_input)
+
+                    valid_paths = set()
+                    for path in file_paths + file_paths2:
+                        if Path(path).exists():
+                            valid_paths.add(path)
+
+                    if not valid_paths:
+                        print("❌  Podana ścieżka nie istnieje.\n")
                         continue
-                    files_to_process = get_files_to_process(file_paths)
+                    
+                    files_to_process = get_files_to_process(list(valid_paths))
                     break
 
             unsupported_files = []
